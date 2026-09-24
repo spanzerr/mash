@@ -1,13 +1,11 @@
-const express = require('express');
+const { query } = require('../config/database');
 
-const router = express.Router();
+async function writeAudit({ organizationId, userId, eventType, entityType, entityId, details = {} }) {
+  await query(
+    `INSERT INTO audit_log (organization_id, user_id, event_type, entity_type, entity_id, details, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+    [organizationId, userId || null, eventType, entityType || null, entityId || null, JSON.stringify(details)]
+  );
+}
 
-router.get('/', async (_req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    service: 'cmmc-readiness-platform',
-    timestamp: new Date().toISOString()
-  });
-});
-
-module.exports = router;
+module.exports = { writeAudit };

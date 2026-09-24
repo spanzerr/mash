@@ -1,37 +1,76 @@
-const crypto = require('crypto');
-const { env } = require('../config/env');
+const { query } = require('../config/database');
 
-const ENCRYPTION_KEY = crypto.createHash('sha256').update(env.ENCRYPTION_KEY).digest();
-const ALGORITHM = 'aes-256-gcm';
+const DOMAIN_MAP = {
+  AC: 'Access Control',
+  AT: 'Awareness and Training',
+  AU: 'Audit and Accountability',
+  CM: 'Configuration Management',
+  IA: 'Identification and Authentication',
+  IR: 'Incident Response',
+  MA: 'Maintenance',
+  MP: 'Media Protection',
+  PE: 'Physical Protection',
+  PS: 'Personnel Security',
+  RA: 'Risk Assessment',
+  SA: 'System and Services Acquisition',
+  SC: 'System and Communications Protection',
+  SI: 'System and Information Integrity'
+};
 
-function encrypt(value) {
-  if (!value) {
-    return null;
+const DEFAULT_PRACTICES = [
+  { domainCode: 'AC', practiceCode: 'AC.1', title: 'Access control policy and procedure' },
+  { domainCode: 'AT', practiceCode: 'AT.1', title: 'Security awareness training' },
+  { domainCode: 'AU', practiceCode: 'AU.1', title: 'Audit logging and monitoring' },
+  { domainCode: 'CM', practiceCode: 'CM.1', title: 'Baseline configuration management' },
+  { domainCode: 'IA', practiceCode: 'IA.1', title: 'Identification and authentication' },
+  { domainCode: 'IR', practiceCode: 'IR.1', title: 'Incident response plan' },
+  { domainCode: 'MA', practiceCode: 'MA.1', title: 'Maintenance processes' },
+  { domainCode: 'MP', practiceCode: 'MP.1', title: 'Media protection' },
+  { domainCode: 'PE', practiceCode: 'PE.1', title: 'Physical protection' },
+  { domainCode: 'PS', practiceCode: 'PS.1', title: 'Personnel security' },
+  { domainCode: 'RA', practiceCode: 'RA.1', title: 'Risk assessment' },
+  { domainCode: 'SA', practiceCode: 'SA.1', title: 'System acquisition' },
+  { domainCode: 'SC', practiceCode: 'SC.1', title: 'Boundary protection' },
+  { domainCode: 'SI', practiceCode: 'SI.1', title: 'System integrity monitoring' }
+];
+
+async function ensureAssessmentPractices(assessmentId) {
+  const { rows } = await query(
+    `SELECT * FROM practice_statuses WHERE assessment_id = $1 LIMIT 1`,
+    [assessmentId]
+  );
+
+  if (rows.length > 0) {
+    return rows;
   }
 
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv(ALGORITHM, ENCRYPTION_KEY, iv);
-  const encrypted = Buffer.concat([cipher.update(String(value), 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
+  const inserts = DEFAULT_PRACTICES.map(() => '(?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
+  const values = [];
 
-  return `${iv.toString('hex')}:${encrypted.toString('hex')}:${tag.toString('hex')}`;
-}
-
-function decrypt(value) {
-  if (!value) {
-    return null;
+  for (const practice of DEFAULT_PRACTICES) {
+    values.push(
+      assessmentId,
+      practice.domainCode,
+      practice.practiceCode,
+      'not_started',
+      'manual',
+      practice.title,
+      null
+    );
   }
 
-  const [ivHex, encryptedHex, tagHex] = value.split(':');
-  const iv = Buffer.from(ivHex, 'hex');
-  const encrypted = Buffer.from(encryptedHex, 'hex');
-  const tag = Buffer.from(tagHex, 'hex');
+  await query(
+    `INSERT INTO practice_statuses (assessment_id, domain_code, practice_code, status, source, notes, last_reviewed_by, created_at, updated_at)
+     VALUES ${DEFAULT_PRACTICES.map(() => '($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())').join(', ')}`,
+    values
+  );
 
-  const decipher = crypto.createDecipheriv(ALGORITHM, ENCRYPTION_KEY, iv);
-  decipher.setAuthTag(tag);
+  const refreshed = await query(
+    `SELECT * FROM practice_statuses WHERE assessment_id = $1 ORDER BY domain_code, practice_code`,
+    [assessmentId]
+  );
 
-  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  return decrypted.toString('utf8');
+  return refreshed.rows;
 }
 
-module.exports = { encrypt, decrypt };
+module.exports = { DOMAIN_MAP, DEFAULT_PRACTICES, ensureAssessmentPractices };

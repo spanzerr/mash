@@ -1,11 +1,32 @@
-const { query } = require('../config/database');
+const crypto = require('crypto');
+const { env } = require('../config/env');
 
-async function writeAudit({ organizationId, userId, eventType, entityType, entityId, details = {} }) {
-  await query(
-    `INSERT INTO audit_log (organization_id, user_id, event_type, entity_type, entity_id, details)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [organizationId, userId || null, eventType, entityType || null, entityId || null, JSON.stringify(details)]
-  );
+const key = crypto.createHash('sha256').update(env.ENCRYPTION_KEY).digest();
+const algorithm = 'aes-256-gcm';
+
+function encrypt(value) {
+  if (value === null || value === undefined) return null;
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv(algorithm, key, iv);
+  const encrypted = Buffer.concat([cipher.update(String(value), 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${iv.toString('hex')}:${encrypted.toString('hex')}:${tag.toString('hex')}`;
 }
 
-module.exports = { writeAudit };
+function decrypt(value) {
+  if (!value) return null;
+  const [ivHex, encryptedHex, tagHex] = value.split(':');
+  if (!ivHex || !encryptedHex || !tagHex) return null;
+
+  const decipher = crypto.createDecipheriv(algorithm, key, Buffer.from(ivHex, 'hex'));
+  decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+
+  const decrypted = Buffer.concat([
+    decipher.update(Buffer.from(encryptedHex, 'hex')),
+    decipher.final()
+  ]);
+
+  return decrypted.toString('utf8');
+}
+
+module.exports = { encrypt, decrypt };
