@@ -1,0 +1,38 @@
+{
+  "name": "cmmc-readiness-platform",
+  "version": "0.1.0",
+  "description": "Self-hosted CMMC 2.0 Level 2 readiness platform",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "migrate": "node src/db/migrate.js up",
+    "migrate:down": "node src/db/migrate.js down",
+    "migrate:status": "node src/db/migrate.js status",
+    "lint": "node --check src/server.js"
+  },
+  "keywords": [
+    "cmmc",
+    "compliance",
+    "readiness",
+    "express",
+    "postgresql"
+  ],
+  "author": "spanzerr",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "node-pg-migrate": "^7.0.0",
+    "pg": "^8.17.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.16"
+  }
+}
