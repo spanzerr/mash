@@ -10,9 +10,29 @@ pool.on('error', (err) => {
   console.error('Unexpected PostgreSQL client error:', err);
 });
 
+async function query(text, params = []) {
+  return pool.query(text, params);
+}
+
+async function withTransaction(callback) {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+    const result = await callback(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function testDatabaseConnection() {
   try {
-    await pool.query('SELECT 1');
+    await query('SELECT 1');
     console.log('PostgreSQL connection successful');
   } catch (error) {
     console.error('PostgreSQL connection failed:', error.message);
@@ -21,5 +41,7 @@ async function testDatabaseConnection() {
 
 module.exports = {
   pool,
+  query,
+  withTransaction,
   testDatabaseConnection
 };

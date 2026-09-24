@@ -1,0 +1,402 @@
+const api = {
+  baseUrl: '/api',
+  token: localStorage.getItem('cmmc_token') || null,
+
+  headers() {
+    return {
+      'Content-Type': 'application/json',
+      ...(this.token ? { Authorization: `Bearer ${this.token}` } : {})
+    };
+  },
+
+  async request(path, options = {}) {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      ...options,
+      headers: {
+        ...this.headers(),
+        ...(options.headers || {})
+      }
+    });
+
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(payload.error || 'Request failed');
+    }
+
+    return payload;
+  }
+};
+
+const state = {
+  currentView: 'dashboard',
+  assessments: [],
+  evidence: [],
+  poam: [],
+  documents: [],
+  team: [],
+  connectors: []
+};
+
+function setView(viewName) {
+  document.querySelectorAll('.nav-link').forEach((button) => {
+    button.classList.toggle('active', button.dataset.view === viewName);
+  });
+
+  document.querySelectorAll('.view').forEach((view) => {
+    view.classList.toggle('active', view.id === `view-${viewName}`);
+  });
+
+  state.currentView = viewName;
+}
+
+function authRequired() {
+  return !api.token;
+}
+
+function updateAuthUI() {
+  const isLoggedIn = !!api.token;
+  document.getElementById('authPanel').classList.toggle('hidden', isLoggedIn);
+  document.querySelector('.main').style.filter = isLoggedIn ? 'none' : 'brightness(0.85)';
+}
+
+function renderStatusSummary(items) {
+  const summary = document.getElementById('statusSummary');
+  if (!items || items.length === 0) {
+    summary.innerHTML = '<p class="muted">No statuses yet.</p>';
+    return;
+  }
+
+  const counts = items.reduce((acc, item) => {
+    acc[item.source] = (acc[item.source] || 0) + 1;
+    return acc;
+  }, {});
+
+  summary.innerHTML = Object.entries(counts).map(([source, count]) => {
+    return `<span class="status-pill ${source}">${source} • ${count}</span>`;
+  }).join('');
+}
+
+async function loadDashboard() {
+  try {
+    const assessments = await api.request('/assessments');
+    const poam = await api.request('/poam');
+    const documents = await api.request('/documents');
+
+    state.assessments = assessments.assessments || [];
+    state.poam = poam.poamItems || [];
+    state.documents = documents.documents || [];
+
+    document.getElementById('assessmentCount').textContent = String(state.assessments.length);
+    document.getElementById('poamCount').textContent = String(state.poam.length);
+    document.getElementById('documentCount').textContent = String(state.documents.length);
+    document.getElementById('readinessScore').textContent = `${Math.min(100, Math.round((state.assessments.length || 0) * 25))}%`;
+
+    const statuses = [];
+    for (const assessment of state.assessments) {
+      const details = await api.request(`/assessments/${assessment.id}`);
+      statuses.push(...(details.practices || []));
+    }
+
+    renderStatusSummary(statuses);
+  } catch (error) {
+    console.warn('Dashboard load skipped:', error.message);
+  }
+}
+
+async function loadAssessments() {
+  try {
+    const data = await api.request('/assessments');
+    state.assessments = data.assessments || [];
+
+    const list = document.getElementById('assessmentList');
+    list.innerHTML = state.assessments.length
+      ? state.assessments.map((assessment) => `
+        <div class="list-item">
+          <h4>${assessment.name}</h4>
+          <p>Status: ${assessment.status}</p>
+        </div>
+      `).join('')
+      : '<div class="list-item"><p>No assessments yet.</p></div>';
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function loadEvidence() {
+  try {
+    const data = await api.request('/evidence');
+    state.evidence = data.evidence || [];
+
+    const list = document.getElementById('evidenceList');
+    list.innerHTML = state.evidence.length
+      ? state.evidence.map((item) => `
+        <div class="list-item">
+          <h4>${item.title}</h4>
+          <p>${item.description || 'No description provided'}</p>
+        </div>
+      `).join('')
+      : '<div class="list-item"><p>No evidence added.</p></div>';
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function loadPoam() {
+  try {
+    const data = await api.request('/poam');
+    state.poam = data.poamItems || [];
+
+    const list = document.getElementById('poamList');
+    list.innerHTML = state.poam.length
+      ? state.poam.map((item) => `
+        <div class="list-item">
+          <h4>${item.title}</h4>
+          <p>Owner: ${item.owner} • Status: ${item.status} • Progress: ${item.progress_pct}%</p>
+        </div>
+      `).join('')
+      : '<div class="list-item"><p>No POA&M items.</p></div>';
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function loadDocuments() {
+  try {
+    const data = await api.request('/documents');
+    state.documents = data.documents || [];
+
+    const list = document.getElementById('documentList');
+    list.innerHTML = state.documents.length
+      ? state.documents.map((doc) => `
+        <div class="list-item">
+          <h4>${doc.title}</h4>
+          <p>Status: ${doc.status} • Type: ${doc.document_type}</p>
+        </div>
+      `).join('')
+      : '<div class="list-item"><p>No documents generated.</p></div>';
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function loadTeam() {
+  try {
+    const data = await api.request('/organizations/0/team');
+    state.team = data.users || [];
+
+    const list = document.getElementById('teamList');
+    list.innerHTML = state.team.length
+      ? state.team.map((user) => `
+        <div class="list-item">
+          <h4>${user.full_name}</h4>
+          <p>${user.email} • ${user.role}</p>
+        </div>
+      `).join('')
+      : '<div class="list-item"><p>No team members yet.</p></div>';
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function loadConnectors() {
+  try {
+    const data = await api.request('/connectors');
+    state.connectors = data.connectors || [];
+
+    const list = document.getElementById('connectorList');
+    list.innerHTML = state.connectors.length
+      ? state.connectors.map((connector) => `
+        <div class="list-item">
+          <h4>${connector.provider}</h4>
+          <p>Type: ${connector.connector_type} • Connected</p>
+        </div>
+      `).join('')
+      : '<div class="list-item"><p>No read-only connectors configured.</p></div>';
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function refreshAll() {
+  if (authRequired()) {
+    updateAuthUI();
+    return;
+  }
+
+  await Promise.all([
+    loadDashboard(),
+    loadAssessments(),
+    loadEvidence(),
+    loadPoam(),
+    loadDocuments(),
+    loadTeam(),
+    loadConnectors()
+  ]);
+}
+
+document.querySelectorAll('.nav-link').forEach((button) => {
+  button.addEventListener('click', () => setView(button.dataset.view));
+});
+
+document.getElementById('refreshButton').addEventListener('click', refreshAll);
+
+document.getElementById('logoutButton').addEventListener('click', () => {
+  localStorage.removeItem('cmmc_token');
+  api.token = null;
+  updateAuthUI();
+  setView('dashboard');
+});
+
+document.getElementById('loginForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const payload = {
+    email: document.getElementById('loginEmail').value,
+    password: document.getElementById('loginPassword').value
+  };
+
+  try {
+    const response = await api.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+
+    api.token = response.token;
+    localStorage.setItem('cmmc_token', response.token);
+    updateAuthUI();
+    await refreshAll();
+  } catch (error) {
+    alert(error.message);
+  }
+});
+
+document.getElementById('registerForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const payload = {
+    fullName: document.getElementById('registerName').value,
+    email: document.getElementById('registerEmail').value,
+    organizationName: document.getElementById('registerOrg').value,
+    password: document.getElementById('registerPassword').value
+  };
+
+  try {
+    const response = await api.request('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+
+    api.token = response.token;
+    localStorage.setItem('cmmc_token', response.token);
+    updateAuthUI();
+    await refreshAll();
+  } catch (error) {
+    alert(error.message);
+  }
+});
+
+document.getElementById('createAssessmentBtn').addEventListener('click', async () => {
+  try {
+    await api.request('/assessments', {
+      method: 'POST',
+      body: JSON.stringify({ name: `Assessment ${Date.now()}` })
+    });
+    await refreshAll();
+  } catch (error) {
+    alert(error.message);
+  }
+});
+
+document.getElementById('evidenceForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  await api.request('/evidence', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: document.getElementById('evidenceTitle').value,
+      description: document.getElementById('evidenceDescription').value,
+      fileUrl: document.getElementById('evidenceUrl').value
+    })
+  });
+  event.target.reset();
+  await refreshAll();
+});
+
+document.getElementById('poamForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  await api.request('/poam', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: document.getElementById('poamTitle').value,
+      owner: document.getElementById('poamOwner').value,
+      dueDate: document.getElementById('poamDueDate').value,
+      status: document.getElementById('poamStatus').value
+    })
+  });
+  event.target.reset();
+  await refreshAll();
+});
+
+document.getElementById('generateDocButton').addEventListener('click', async () => {
+  try {
+    const assessments = await api.request('/assessments');
+    const firstAssessment = assessments.assessments?.[0];
+    if (!firstAssessment) {
+      alert('Create an assessment before generating a document.');
+      return;
+    }
+
+    await api.request('/documents/generate', {
+      method: 'POST',
+      body: JSON.stringify({ assessmentId: firstAssessment.id, documentType: 'ssp' })
+    });
+    await refreshAll();
+  } catch (error) {
+    alert(error.message);
+  }
+});
+
+document.getElementById('inviteForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    await api.request('/auth/invitations', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: document.getElementById('inviteEmail').value,
+        role: document.getElementById('inviteRole').value
+      })
+    });
+    event.target.reset();
+    await refreshAll();
+  } catch (error) {
+    alert(error.message);
+  }
+});
+
+document.getElementById('connectMicrosoftBtn').addEventListener('click', async () => {
+  try {
+    const response = await api.request('/connectors/oauth/start', {
+      method: 'POST',
+      body: JSON.stringify({ provider: 'microsoft' })
+    });
+    window.open(response.authorizationUrl, '_blank');
+  } catch (error) {
+    alert(error.message);
+  }
+});
+
+document.getElementById('connectGoogleBtn').addEventListener('click', async () => {
+  try {
+    const response = await api.request('/connectors/oauth/start', {
+      method: 'POST',
+      body: JSON.stringify({ provider: 'google' })
+    });
+    window.open(response.authorizationUrl, '_blank');
+  } catch (error) {
+    alert(error.message);
+  }
+});
+
+setView('dashboard');
+updateAuthUI();
+if (api.token) {
+  refreshAll();
+}

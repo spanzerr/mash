@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CMMC Readiness Platform</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">C</div>
+          <div>
+            <strong>CMMC</strong>
+            <small>Readiness</small>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <button class="nav-link active" data-view="dashboard">Dashboard</button>
+          <button class="nav-link" data-view="assessment">Assessment</button>
+          <button class="nav-link" data-view="evidence">Evidence</button>
+          <button class="nav-link" data-view="poam">POA&M</button>
+          <button class="nav-link" data-view="documents">Documents</button>
+          <button class="nav-link" data-view="team">Team</button>
+          <button class="nav-link" data-view="connectors">Connectors</button>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <h1>Readiness platform</h1>
+            <p>Operational compliance visibility</p>
+          </div>
+          <div class="topbar-actions">
+            <button id="refreshButton" class="secondary">Refresh</button>
+            <button id="logoutButton" class="danger">Logout</button>
+          </div>
+        </header>
+
+        <section id="authPanel" class="panel auth-panel hidden">
+          <div class="auth-card">
+            <h2>Access your organization</h2>
+            <form id="loginForm">
+              <label>
+                Email
+                <input type="email" id="loginEmail" required />
+              </label>
+              <label>
+                Password
+                <input type="password" id="loginPassword" required />
+              </label>
+              <button type="submit">Login</button>
+            </form>
+          </div>
+          <div class="auth-card">
+            <h2>Create organization</h2>
+            <form id="registerForm">
+              <label>
+                Full name
+                <input type="text" id="registerName" required />
+              </label>
+              <label>
+                Email
+                <input type="email" id="registerEmail" required />
+              </label>
+              <label>
+                Organization
+                <input type="text" id="registerOrg" required />
+              </label>
+              <label>
+                Password
+                <input type="password" id="registerPassword" required />
+              </label>
+              <button type="submit">Register</button>
+            </form>
+          </div>
+        </section>
+
+        <section id="view-dashboard" class="view active">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <span>Readiness score</span>
+              <strong id="readinessScore">0%</strong>
+            </div>
+            <div class="stat-card">
+              <span>Assessments</span>
+              <strong id="assessmentCount">0</strong>
+            </div>
+            <div class="stat-card">
+              <span>Open POA&Ms</span>
+              <strong id="poamCount">0</strong>
+            </div>
+            <div class="stat-card">
+              <span>Documents</span>
+              <strong id="documentCount">0</strong>
+            </div>
+          </div>
+
+          <div class="grid-two">
+            <div class="panel">
+              <h3>Recent status mix</h3>
+              <div id="statusSummary" class="status-summary"></div>
+            </div>
+            <div class="panel">
+              <h3>Quick actions</h3>
+              <ul class="action-list">
+                <li>Create assessment</li>
+                <li>Review documents</li>
+                <li>Sync connectors</li>
+                <li>Assign remediation owners</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-assessment" class="view hidden">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Assessments</h3>
+              <button id="createAssessmentBtn" class="primary">New Assessment</button>
+            </div>
+            <div id="assessmentList" class="list"></div>
+          </div>
+        </section>
+
+        <section id="view-evidence" class="view hidden">
+          <div class="panel">
+            <h3>Evidence register</h3>
+            <form id="evidenceForm" class="stacked-form">
+              <label>
+                Evidence title
+                <input type="text" id="evidenceTitle" required />
+              </label>
+              <label>
+                Description
+                <textarea id="evidenceDescription"></textarea>
+              </label>
+              <label>
+                File URL
+                <input type="text" id="evidenceUrl" />
+              </label>
+              <button type="submit">Add evidence</button>
+            </form>
+            <div id="evidenceList" class="list"></div>
+          </div>
+        </section>
+
+        <section id="view-poam" class="view hidden">
+          <div class="panel">
+            <h3>POA&M tracker</h3>
+            <form id="poamForm" class="stacked-form">
+              <label>
+                Title
+                <input type="text" id="poamTitle" required />
+              </label>
+              <label>
+                Owner
+                <input type="text" id="poamOwner" required />
+              </label>
+              <label>
+                Due date
+                <input type="date" id="poamDueDate" />
+              </label>
+              <label>
+                Status
+                <select id="poamStatus">
+                  <option value="open">Open</option>
+                  <option value="in_progress">In progress</option>
+                  <option value="closed">Closed</option>
+                </select>
+              </label>
+              <button type="submit">Add POA&M</button>
+            </form>
+            <div id="poamList" class="list"></div>
+          </div>
+        </section>
+
+        <section id="view-documents" class="view hidden">
+          <div class="panel">
+            <h3>Documents</h3>
+            <button id="generateDocButton" class="primary">Generate SSP draft</button>
+            <div id="documentList" class="list"></div>
+          </div>
+        </section>
+
+        <section id="view-team" class="view hidden">
+          <div class="panel">
+            <h3>Team</h3>
+            <form id="inviteForm" class="stacked-form">
+              <label>
+                Email
+                <input type="email" id="inviteEmail" required />
+              </label>
+              <label>
+                Role
+                <select id="inviteRole">
+                  <option value="member">Member</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </label>
+              <button type="submit">Invite user</button>
+            </form>
+            <div id="teamList" class="list"></div>
+          </div>
+        </section>
+
+        <section id="view-connectors" class="view hidden">
+          <div class="panel">
+            <h3>Connectors</h3>
+            <div class="connector-actions">
+              <button id="connectMicrosoftBtn">Connect Microsoft 365</button>
+              <button id="connectGoogleBtn">Connect Google Workspace</button>
+            </div>
+            <div id="connectorList" class="list"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

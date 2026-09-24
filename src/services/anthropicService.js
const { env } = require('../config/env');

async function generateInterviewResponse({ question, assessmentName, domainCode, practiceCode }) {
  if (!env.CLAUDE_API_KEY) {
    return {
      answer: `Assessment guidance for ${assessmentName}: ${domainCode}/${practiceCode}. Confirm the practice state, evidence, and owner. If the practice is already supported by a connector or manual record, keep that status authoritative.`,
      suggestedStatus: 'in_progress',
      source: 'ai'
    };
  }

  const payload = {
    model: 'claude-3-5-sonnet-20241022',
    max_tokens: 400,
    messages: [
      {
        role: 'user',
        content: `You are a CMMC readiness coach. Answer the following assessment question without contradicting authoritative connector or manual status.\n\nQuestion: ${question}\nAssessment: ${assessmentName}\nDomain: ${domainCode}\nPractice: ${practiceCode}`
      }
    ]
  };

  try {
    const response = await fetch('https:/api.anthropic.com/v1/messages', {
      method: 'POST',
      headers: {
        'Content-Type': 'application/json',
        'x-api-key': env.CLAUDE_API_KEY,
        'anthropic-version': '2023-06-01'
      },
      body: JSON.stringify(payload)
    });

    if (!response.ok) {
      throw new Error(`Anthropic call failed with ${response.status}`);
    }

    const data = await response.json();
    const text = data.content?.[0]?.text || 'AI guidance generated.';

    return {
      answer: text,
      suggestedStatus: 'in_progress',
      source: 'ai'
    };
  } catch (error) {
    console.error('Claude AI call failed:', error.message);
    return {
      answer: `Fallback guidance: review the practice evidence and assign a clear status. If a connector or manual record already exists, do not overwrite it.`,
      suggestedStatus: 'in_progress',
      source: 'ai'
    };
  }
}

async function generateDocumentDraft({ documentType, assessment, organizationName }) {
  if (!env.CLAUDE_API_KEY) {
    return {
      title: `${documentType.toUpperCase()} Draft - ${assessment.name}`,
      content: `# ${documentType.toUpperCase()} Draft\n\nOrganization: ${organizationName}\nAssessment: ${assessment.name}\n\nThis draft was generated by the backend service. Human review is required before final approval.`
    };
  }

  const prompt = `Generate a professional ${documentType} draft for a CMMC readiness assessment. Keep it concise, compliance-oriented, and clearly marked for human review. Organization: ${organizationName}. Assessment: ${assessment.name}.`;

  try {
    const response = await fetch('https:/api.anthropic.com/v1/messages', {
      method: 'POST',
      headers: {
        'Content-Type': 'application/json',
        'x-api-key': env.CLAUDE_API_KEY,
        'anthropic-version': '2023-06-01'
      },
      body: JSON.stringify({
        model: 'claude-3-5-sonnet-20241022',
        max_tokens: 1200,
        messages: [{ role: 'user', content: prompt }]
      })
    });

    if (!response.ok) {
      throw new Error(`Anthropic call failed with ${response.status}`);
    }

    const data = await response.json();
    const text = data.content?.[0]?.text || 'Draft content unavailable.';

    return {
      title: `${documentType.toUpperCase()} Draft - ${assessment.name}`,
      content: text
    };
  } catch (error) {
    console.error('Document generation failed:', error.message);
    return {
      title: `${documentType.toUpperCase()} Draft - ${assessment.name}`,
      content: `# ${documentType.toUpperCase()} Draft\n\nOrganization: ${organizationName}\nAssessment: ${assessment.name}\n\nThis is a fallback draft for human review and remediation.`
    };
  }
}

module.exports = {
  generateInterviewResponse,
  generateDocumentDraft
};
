@@ -1,0 +1,141 @@
+const { query } = require('../config/database');
+
+const DOMAIN_MAP = {
+  'AC': 'Access Control',
+  'AT': 'Awareness and Training',
+  'AU': 'Audit and Accountability',
+  'CM': 'Configuration Management',
+  'IA': 'Identification and Authentication',
+  'IR': 'Incident Response',
+  'MA': 'Maintenance',
+  'MP': 'Media Protection',
+  'PE': 'Physical Protection',
+  'PS': 'Personnel Security',
+  'RA': 'Risk Assessment',
+  'SA': 'System and Services Acquisition',
+  'SC': 'System and Communications Protection',
+  'SI': 'System and Information Integrity'
+};
+
+const DEFAULT_PRACTICES = [
+  { domainCode: 'AC', practiceCode: 'AC.1', title: 'Access control policy and procedure', source: 'manual' },
+  { domainCode: 'AT', practiceCode: 'AT.1', title: 'Security awareness training', source: 'manual' },
+  { domainCode: 'AU', practiceCode: 'AU.1', title: 'Audit logging and monitoring', source: 'manual' },
+  { domainCode: 'CM', practiceCode: 'CM.1', title: 'Baseline configuration management', source: 'manual' },
+  { domainCode: 'IA', practiceCode: 'IA.1', title: 'Identification and authentication', source: 'manual' },
+  { domainCode: 'IR', practiceCode: 'IR.1', title: 'Incident response plan', source: 'manual' },
+  { domainCode: 'MA', practiceCode: 'MA.1', title: 'Maintenance processes', source: 'manual' },
+  { domainCode: 'MP', practiceCode: 'MP.1', title: 'Media protection', source: 'manual' },
+  { domainCode: 'PE', practiceCode: 'PE.1', title: 'Physical protection', source: 'manual' },
+  { domainCode: 'PS', practiceCode: 'PS.1', title: 'Personnel security', source: 'manual' },
+  { domainCode: 'RA', practiceCode: 'RA.1', title: 'Risk assessment', source: 'manual' },
+  { domainCode: 'SA', practiceCode: 'SA.1', title: 'System acquisition', source: 'manual' },
+  { domainCode: 'SC', practiceCode: 'SC.1', title: 'Boundary protection', source: 'manual' },
+  { domainCode: 'SI', practiceCode: 'SI.1', title: 'System integrity monitoring', source: 'manual' }
+];
+
+async function ensureAssessmentPractices(assessmentId) {
+  const { rows } = await query(
+    `SELECT * FROM practice_statuses WHERE assessment_id = $1 LIMIT 1`,
+    [assessmentId]
+  );
+
+  if (rows.length > 0) {
+    return rows;
+  }
+
+  const values = DEFAULT_PRACTICES.map((practice, index) => {
+    return `($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`;
+  }).join(', ');
+
+  const params = [];
+  DEFAULT_PRACTICES.forEach((practice) => {
+    params.push(
+      assessmentId,
+      practice.domainCode,
+      practice.practiceCode,
+      'not_started',
+      practice.source,
+      practice.title,
+      null
+    );
+  });
+
+  await query(
+    `INSERT INTO practice_statuses (assessment_id, domain_code, practice_code, status, source, notes, last_reviewed_by, created_at, updated_at)
+     VALUES ${values}`,
+    params
+  );
+
+  const refreshed = await query(
+    `SELECT * FROM practice_statuses WHERE assessment_id = $1 ORDER BY domain_code, practice_code`,
+    [assessmentId]
+  );
+
+  return refreshed.rows;
+}
+
+function assessSourceIntegrity(currentEntry, incomingSource) {
+  if (!currentEntry) {
+    return incomingSource || 'manual';
+  }
+
+  const protectedSources = ['connector', 'manual'];
+  if (protectedSources.includes(currentEntry.source) && incomingSource === 'ai') {
+    return currentEntry.source;
+  }
+
+  return incomingSource || currentEntry.source || 'manual';
+}
+
+async function updatePracticeStatus({ assessmentId, domainCode, practiceCode, status, source, notes, userId }) {
+  const { rows } = await query(
+    `SELECT * FROM practice_statuses WHERE assessment_id = $1 AND domain_code = $2 AND practice_code = $3 LIMIT 1`,
+    [assessmentId, domainCode, practiceCode]
+  );
+
+  const existing = rows[0];
+  const finalSource = assessSourceIntegrity(existing, source);
+
+  if (existing && finalSource !== existing.source) {
+    const preservedStatus = existing.status;
+    const preservedNotes = existing.notes;
+
+    if (source === 'ai' && ['connector', 'manual'].includes(existing.source)) {
+      return {
+        ...existing,
+        status: preservedStatus,
+        notes: preservedNotes,
+        source: existing.source,
+        skipped: true,
+        message: 'AI update blocked because a higher-priority source already exists.'
+      };
+    }
+  }
+
+  const nextStatus = status || existing?.status || 'not_started';
+  const nextNotes = notes || existing?.notes || null;
+
+  const result = await query(
+    `INSERT INTO practice_statuses (assessment_id, domain_code, practice_code, status, source, notes, last_reviewed_by, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+     ON CONFLICT (assessment_id, domain_code, practice_code)
+     DO UPDATE SET status = EXCLUDED.status, source = EXCLUDED.source, notes = EXCLUDED.notes, last_reviewed_by = EXCLUDED.last_reviewed_by, updated_at = NOW()`,
+    [assessmentId, domainCode, practiceCode, nextStatus, finalSource, nextNotes, userId]
+  );
+
+  const refreshed = await query(
+    `SELECT * FROM practice_statuses WHERE assessment_id = $1 AND domain_code = $2 AND practice_code = $3 LIMIT 1`,
+    [assessmentId, domainCode, practiceCode]
+  );
+
+  return refreshed.rows[0];
+}
+
+module.exports = {
+  DEFAULT_PRACTICES,
+  DOMAIN_MAP,
+  ensureAssessmentPractices,
+  assessSourceIntegrity,
+  updatePracticeStatus
+};

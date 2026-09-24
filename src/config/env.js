@@ -8,7 +8,8 @@ const env = {
   M365_CLIENT_ID: process.env.M365_CLIENT_ID || '',
   M365_CLIENT_SECRET: process.env.M365_CLIENT_SECRET || '',
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
-  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || ''
+  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || '',
+  ENCRYPTION_KEY: process.env.ENCRYPTION_KEY || '12345678901234567890123456789012'
 };
 
 module.exports = { env };

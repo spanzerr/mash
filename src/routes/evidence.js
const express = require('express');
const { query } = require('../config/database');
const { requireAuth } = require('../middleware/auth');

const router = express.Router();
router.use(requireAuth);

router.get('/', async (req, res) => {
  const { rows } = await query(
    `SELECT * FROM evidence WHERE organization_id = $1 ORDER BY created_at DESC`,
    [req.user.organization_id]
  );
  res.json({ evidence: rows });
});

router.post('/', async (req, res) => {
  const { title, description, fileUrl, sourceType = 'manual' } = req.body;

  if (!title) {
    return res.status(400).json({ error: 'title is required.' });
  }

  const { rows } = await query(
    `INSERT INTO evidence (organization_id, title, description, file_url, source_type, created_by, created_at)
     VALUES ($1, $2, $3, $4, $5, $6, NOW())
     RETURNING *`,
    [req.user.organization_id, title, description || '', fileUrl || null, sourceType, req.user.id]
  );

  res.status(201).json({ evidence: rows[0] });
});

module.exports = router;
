@@ -1,0 +1,117 @@
+const express = require('express');
+const { query } = require('../config/database');
+const { requireAuth, requireRole } = require('../middleware/auth');
+const { ensureAssessmentPractices, updatePracticeStatus, DOMAIN_MAP } = require('../utils/assessment');
+const { generateInterviewResponse } = require('../services/anthropicService');
+
+const router = express.Router();
+
+router.use(requireAuth);
+
+router.get('/', async (req, res) => {
+  const { rows } = await query(
+    `SELECT * FROM assessments WHERE organization_id = $1 ORDER BY created_at DESC`,
+    [req.user.organization_id]
+  );
+
+  res.json({ assessments: rows });
+});
+
+router.post('/', async (req, res) => {
+  const { name } = req.body;
+  const { rows } = await query(
+    `INSERT INTO assessments (organization_id, name, status, created_by, created_at, updated_at)
+     VALUES ($1, $2, 'draft', $3, NOW(), NOW())
+     RETURNING *`,
+    [req.user.organization_id, name || 'New assessment', req.user.id]
+  );
+
+  const assessment = rows[0];
+  await ensureAssessmentPractices(assessment.id);
+
+  res.status(201).json({ assessment });
+});
+
+router.get('/:assessmentId', async (req, res) => {
+  const { rows } = await query(
+    `SELECT * FROM assessments WHERE id = $1 AND organization_id = $2 LIMIT 1`,
+    [req.params.assessmentId, req.user.organization_id]
+  );
+
+  if (!rows[0]) {
+    return res.status(404).json({ error: 'Assessment not found.' });
+  }
+
+  const practices = await ensureAssessmentPractices(rows[0].id);
+  res.json({ assessment: rows[0], practices, domains: DOMAIN_MAP });
+});
+
+router.post('/:assessmentId/practices', async (req, res) => {
+  const { domainCode, practiceCode, status, source = 'manual', notes } = req.body;
+
+  if (!domainCode || !practiceCode || !status) {
+    return res.status(400).json({ error: 'domainCode, practiceCode, and status are required.' });
+  }
+
+  const result = await updatePracticeStatus({
+    assessmentId: Number(req.params.assessmentId),
+    domainCode,
+    practiceCode,
+    status,
+    source,
+    notes,
+    userId: req.user.id
+  });
+
+  res.json({ practice: result });
+});
+
+router.post('/:assessmentId/ai-interview', async (req, res) => {
+  const { domainCode, practiceCode, question } = req.body;
+
+  if (!domainCode || !practiceCode || !question) {
+    return res.status(400).json({ error: 'domainCode, practiceCode, and question are required.' });
+  }
+
+  const assessment = await query(
+    `SELECT * FROM assessments WHERE id = $1 AND organization_id = $2 LIMIT 1`,
+    [req.params.assessmentId, req.user.organization_id]
+  );
+
+  const aiResult = await generateInterviewResponse({
+    question,
+    assessmentName: assessment.rows[0]?.name || 'Readiness assessment',
+    domainCode,
+    practiceCode
+  });
+
+  const currentStatus = await query(
+    `SELECT * FROM practice_statuses WHERE assessment_id = $1 AND domain_code = $2 AND practice_code = $3 LIMIT 1`,
+    [req.params.assessmentId, domainCode, practiceCode]
+  );
+
+  const existingEntry = currentStatus.rows[0];
+  const protectedUpdate = existingEntry && ['connector', 'manual'].includes(existingEntry.source) && aiResult.source === 'ai';
+
+  if (protectedUpdate) {
+    return res.json({
+      message: 'AI guidance ignored because the status is already controlled by a higher-priority source.',
+      practice: existingEntry,
+      aiResponse: aiResult
+    });
+  }
+
+  const result = await updatePracticeStatus({
+    assessmentId: Number(req.params.assessmentId),
+    domainCode,
+    practiceCode,
+    status: aiResult.suggestedStatus,
+    source: 'ai',
+    notes: aiResult.answer,
+    userId: req.user.id
+  });
+
+  res.json({ aiResponse: aiResult, practice: result });
+});
+
+module.exports = router;

@@ -1,0 +1,51 @@
+const express = require('express');
+const { query } = require('../config/database');
+const { requireAuth, requireRole } = require('../middleware/auth');
+const { listConnectors, getAuthorizationUrl, saveConnectorToken, getReadOnlySnapshot } = require('../services/connectorService');
+
+const router = express.Router();
+router.use(requireAuth);
+
+router.get('/', async (req, res) => {
+  const connectors = await listConnectors(req.user.organization_id);
+  res.json({ connectors });
+});
+
+router.post('/oauth/start', requireRole(['admin']), async (req, res) => {
+  const { provider, redirectUri } = req.body;
+
+  if (!provider || !['microsoft', 'google'].includes(provider)) {
+    return res.status(400).json({ error: 'A valid provider is required (microsoft or google).' });
+  }
+
+  const url = getAuthorizationUrl({ provider, organizationId: req.user.organization_id, redirectUri });
+  res.json({ authorizationUrl: url });
+});
+
+router.post('/oauth/callback', requireRole(['admin']), async (req, res) => {
+  const { provider, code } = req.body;
+
+  if (!provider || !code) {
+    return res.status(400).json({ error: 'provider and code are required.' });
+  }
+
+  const tokenRecord = await saveConnectorToken({
+    organizationId: req.user.organization_id,
+    provider,
+    code,
+    redirectUri: 'http://localhost:4000/api/connectors/oauth/callback'
+  });
+
+  res.status(201).json({ connector: tokenRecord });
+});
+
+router.get('/:provider/snapshot', async (req, res) => {
+  const snapshot = await getReadOnlySnapshot({
+    organizationId: req.user.organization_id,
+    provider: req.params.provider
+  });
+
+  res.json(snapshot);
+});
+
+module.exports = router;
